@@ -1,4 +1,18 @@
-from flask import Flask, jsonify
+
+
+http://googleusercontent.com/immersive_entry_chip/1
+
+## 🚀 Ringkasan dan Tindakan
+
+1.  **Eksekusi Perintah SQL** untuk membuat tabel `drivers` dan `notifications` di MariaDB.
+2.  **Buat File `routes/driver.py`** dan masukkan kode di atas.
+3.  **Buat File `routes/notification.py`** dan masukkan kode di atas.
+4.  **Perbarui `app.py`** untuk mendaftarkan *blueprint* baru.
+5.  **Restart Server Flask** (`Ctrl + C` lalu `python app.py`).
+
+Dengan langkah ini, *backend* Anda telah menyelesaikan implementasi untuk hampir semua fungsionalitas inti yang terdaftar dari A hingga X. Sisa bagian Z (Messages, Help Center, Others) adalah *endpoint* untuk konten statis atau layanan yang lebih spesifik, tetapi logika bisnis utamanya sudah selesai!
+
+Sekarang Anda memiliki *backend* Super App "dieHantar" yang fungsional dan terstruktur!from flask import Flask, jsonify
 import pymysql.cursors
 from config import Config
 
@@ -40,4 +54,4 @@ def get_makanan_list():
 
 if __name__ == '__main__':
     # Pastikan MariaDB (MySQL) server sudah berjalan!
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)
