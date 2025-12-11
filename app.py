@@ -1,57 +1,120 @@
-
-
-http://googleusercontent.com/immersive_entry_chip/1
-
-## 🚀 Ringkasan dan Tindakan
-
-1.  **Eksekusi Perintah SQL** untuk membuat tabel `drivers` dan `notifications` di MariaDB.
-2.  **Buat File `routes/driver.py`** dan masukkan kode di atas.
-3.  **Buat File `routes/notification.py`** dan masukkan kode di atas.
-4.  **Perbarui `app.py`** untuk mendaftarkan *blueprint* baru.
-5.  **Restart Server Flask** (`Ctrl + C` lalu `python app.py`).
-
-Dengan langkah ini, *backend* Anda telah menyelesaikan implementasi untuk hampir semua fungsionalitas inti yang terdaftar dari A hingga X. Sisa bagian Z (Messages, Help Center, Others) adalah *endpoint* untuk konten statis atau layanan yang lebih spesifik, tetapi logika bisnis utamanya sudah selesai!
-
-Sekarang Anda memiliki *backend* Super App "dieHantar" yang fungsional dan terstruktur!from flask import Flask, jsonify
-import pymysql.cursors
-from config import Config
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import mysql.connector
+import os
 
 app = Flask(__name__)
-app.config.from_object(Config)
+CORS(app)
 
-# Fungsi untuk membuat koneksi database
-def get_db_connection():
-    return pymysql.connect(
-        host=app.config['MYSQL_HOST'],
-        user=app.config['MYSQL_USER'],
-        password=app.config['MYSQL_PASSWORD'],
-        database=app.config['MYSQL_DB'],
-        cursorclass=pymysql.cursors.DictCursor
-    )
+# Konfigurasi Database (User ROOT)
+db_config = {
+    'user': 'root', 
+    'password': '',
+    'host': '127.0.0.1',
+    'database': 'diehantar',
+    'autocommit': True
+}
 
-@app.route('/', methods=['GET'])
+def get_db():
+    return mysql.connector.connect(**db_config)
+
+@app.route('/')
 def home():
-    return jsonify({
-        "status": "success",
-        "message": "Backend DieHantar berjalan dengan Flask di Termux!"
-    })
+    return jsonify({"status": "Online", "fitur": "Wallet & Voucher"})
 
-@app.route('/api/v1/makanan', methods=['GET'])
-def get_makanan_list():
-    connection = get_db_connection()
+# --- FITUR DOMPET / SALDO (Poin 5) ---
+@app.route('/api/wallet', methods=['POST'])
+def wallet():
+    data = request.json
+    user = data.get('user', 'User_App')
+    action = data.get('action') # 'info' atau 'topup'
+    
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    if action == 'info':
+        # Cek Saldo
+        cursor.execute("SELECT * FROM users WHERE username = %s", (user,))
+        result = cursor.fetchone()
+        if not result:
+            # Auto register user jika belum ada
+            cursor.execute("INSERT INTO users (username, saldo) VALUES (%s, 0)", (user,))
+            saldo = 0
+        else:
+            saldo = result['saldo']
+        conn.close()
+        return jsonify({"user": user, "saldo": saldo})
+
+    elif action == 'topup':
+        # Isi Saldo
+        jumlah = int(data.get('jumlah', 0))
+        cursor.execute("UPDATE users SET saldo = saldo + %s WHERE username = %s", (jumlah, user))
+        cursor.execute("INSERT INTO transaksi (user, tipe, jumlah, keterangan) VALUES (%s, 'TOPUP', %s, 'Topup via Termux')",(user, jumlah))
+        conn.close()
+        return jsonify({"status": "Sukses", "pesan": f"Berhasil Topup Rp {jumlah}"})
+
+# --- FITUR VOUCHER / DISKON (Poin 8) ---
+@app.route('/api/check-promo', methods=['POST'])
+def check_promo():
+    code = request.json.get('kode', '').upper()
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM vouchers WHERE kode = %s", (code,))
+    voucher = cursor.fetchone()
+    conn.close()
+    
+    if voucher:
+        if voucher['kuota'] > 0:
+            return jsonify({"valid": True, "potongan": voucher['potongan'], "pesan": "Kode Valid!"})
+        else:
+            return jsonify({"valid": False, "potongan": 0, "pesan": "Kuota Habis"})
+    return jsonify({"valid": False, "potongan": 0, "pesan": "Kode Tidak Ditemukan"})
+
+# --- FITUR INTI (Order & Driver) ---
+@app.route('/api/order', methods=['POST'])
+def order():
+    data = request.json
+    user = data.get('user', 'Anonim')
+    jenis = data.get('jenis', 'Umum')
+    lokasi = data.get('lokasi', '-')
+    potongan = data.get('potongan', 0) # Diskon dari frontend
+    
+    harga_dasar = 15000 if jenis == 'dieFood' else 12000
+    total_bayar = max(0, harga_dasar - potongan)
+    
     try:
-        with connection.cursor() as cursor:
-            # Contoh query. Pastikan tabel menu_makanan sudah ada di database Anda!
-            sql = "SELECT id, nama, harga FROM menu_makanan" 
-            cursor.execute(sql)
-            result = cursor.fetchall()
-            return jsonify({"status": "success", "data": result})
+        conn = get_db()
+        cursor = conn.cursor()
+        sql = "INSERT INTO pesanan (user, jenis, lokasi, status, harga) VALUES (%s, %s, %s, %s, %s)"
+        val = (user, jenis, lokasi, "Mencari Driver", total_bayar)
+        cursor.execute(sql, val)
+        conn.close()
+        return jsonify({"status": "Sukses", "info": "Menunggu Driver...", "harga_akhir": total_bayar})
     except Exception as e:
-        return jsonify({"status": "error", "message": f"Gagal mengambil data: {e}"}), 500
-    finally:
-        connection.close()
+        return jsonify({"status": "Error", "info": str(e)})
 
+@app.route('/api/list-orders', methods=['GET'])
+def get_orders():
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM pesanan ORDER BY id DESC LIMIT 20")
+        rows = cursor.fetchall()
+        conn.close()
+        return jsonify(rows)
+    except Exception as e:
+        return jsonify([])
+
+@app.route('/api/take-order', methods=['POST'])
+def take_order():
+    data = request.json
+    order_id = data.get('id')
+    driver = data.get('driver', 'Driver')
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE pesanan SET status = %s WHERE id = %s", (f"Diambil {driver}", order_id))
+    conn.close()
+    return jsonify({"status": "Sukses"})
 
 if __name__ == '__main__':
-    # Pastikan MariaDB (MySQL) server sudah berjalan!
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
